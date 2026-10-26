@@ -1,0 +1,46 @@
+pipeline {
+    agent any
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-token')
+        SONARQUBE_SERVER = 'SonarQubeServer'
+        TRIVY_VERSION = '0.54.1'
+    }
+    stages {
+        stage('Checkout') {
+            steps {
+                git branch: 'main', url: 'https://github.com/alikumbhar/cloud-native-infrastructure.git'
+            }
+        }
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    docker.build('demo-app:build')
+                }
+            }
+        }
+        stage('Trivy Security Scan') {
+            steps {
+                sh '''
+                    wget -q https://github.com/aquasecurity/trivy/releases/download/v0.54.1/trivy_0.54.1_Linux-64bit.deb
+                    sudo dpkg -i trivy_0.54.1_Linux-64bit.deb
+                    trivy image --exit-code 1 --severity CRITICAL,HIGH demo-app:build
+                '''
+            }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh 'sonar-scanner -Dsonar.projectKey=demo-app'
+                }
+            }
+            post {
+                waitForQualityGate abortBuild: true
+            }
+        }
+        stage('Deploy') {
+            steps {
+                sh 'echo "Deploying demo-app:build to Kubernetes via ArgoCD"'
+            }
+        }
+    }
+}
